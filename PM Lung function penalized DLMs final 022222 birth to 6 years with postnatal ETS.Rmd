@@ -1,0 +1,490 @@
+---
+title: "PM lung function combination ACCESS PROGRESS up to 6 years with postnatal ETS and edu dich"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+
+
+
+
+
+## Load packages and dataset 
+
+```{r, warning=FALSE,message=FALSE}
+
+library(mgcv)
+library(nlme)
+library(splines2)
+library(dlnm)
+library (data.table)
+library (ggplot2)
+library(oddsratio)
+library (geepack)
+library(doBy)
+library (tidyr)
+library(psych)
+library(plyr)
+library(lubridate)
+
+library(jtools)
+library(ggiraphExtra)
+library(sjPlot)
+library(sjmisc)
+library(interplot)
+library(TMB)
+
+library (knitr)
+library(kableExtra)
+library (ggpubr)
+
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+
+library(haven)
+PROGRESS_ACCESS_Lung_function_PM_Temp_ <- read_sav("PROGRESS ACCESS matched sample 021522.sav")
+
+main<-subset(PROGRESS_ACCESS_Lung_function_PM_Temp_)
+
+attach(main)
+
+```
+
+## Create penalized crossbasis 
+
+```{r}
+
+### start at 8th month of pregnancy 
+
+pmweek<-as.matrix (main[,5256:5329])
+
+                         
+pm_exp_cb <- crossbasis(pmweek, 
+                          lag = c(1, 74), 
+                          argvar = list(fun = 'lin'),
+                          arglag = list(fun = 'cr'))
+
+
+
+
+tempweek<-as.matrix (main[,5342:5415])
+
+                         
+temp_exp_cb <- crossbasis(tempweek, 
+                          lag = c(1, 74), 
+                          argvar = list(fun = 'lin'),
+                          arglag = list(fun = 'cr'))
+                          
+pen1 <- cbPen(pm_exp_cb )
+pen2 <- cbPen(temp_exp_cb)
+
+
+```
+
+
+
+
+
+## Method=REML
+
+## FEV model 
+
+
+```{r, echo=TRUE, warning=FALSE}
+
+
+
+
+
+mod  <- gam(z_pre_fev1 ~pm_exp_cb + + temp_exp_cb   +as.factor (ets_postnatal) +mom_age +as.factor (educ_dich)   ,paraPen = list(pm_exp_cb  = pen1,  
+                          temp_exp_cb  = pen2), 
+           method = 'REML') # Estimation technique
+summary (mod)
+
+# Summarize results
+pre_exp_cr <- crossreduce(pm_exp_cb , # DLM crossbasis used in model
+                          mod, # Model results
+                          type = "var", # Reduction across exposure values
+                          value = 5, # Effect relative to exposure value = 1
+                          ci.level = 0.95) # Confidence level
+post_exp_cr <- crossreduce(temp_exp_cb , mod, type = "var", value = 1)
+pre_dlm_results <- data.frame("fit" = pre_exp_cr$fit, 
+                              "low" = pre_exp_cr$low,
+                              "high" = pre_exp_cr$high)
+post_dlm_results <- data.frame("fit" = post_exp_cr$fit, 
+                              "low" = post_exp_cr$low,
+                              "high" = post_exp_cr$high)
+
+
+
+# name rows with '*' to specify critical windows
+row.names(pre_dlm_results) <- ifelse(pre_dlm_results$low > 0 | pre_dlm_results$high < 0, paste0("*", row.names(pre_dlm_results)), row.names(pre_dlm_results))
+row.names(post_dlm_results) <- ifelse(post_dlm_results$low > 0 | post_dlm_results$high < 0, paste0("*", row.names(post_dlm_results)), row.names(post_dlm_results))
+```
+
+
+```{r}
+
+######################create csv file for new predictions#######################
+pre_exp_cr <- crosspred(pm_exp_cb , 
+                        mod,ci.level=0.95, at=5, cen=0)
+
+prd<-with(pre_exp_cr, c(matfit))
+prdlow<-with(pre_exp_cr, c(matlow))
+prdhigh<-with(pre_exp_cr, c(mathigh))
+
+
+
+write.csv(rbind(prd, prdlow, prdhigh), "H:/rosam03/Documents/ACCESS PRISM/Postnatal PM and lung function/fev1penspline.csv")
+
+```
+
+```{r, warning=FALSE,message=FALSE}
+round(pre_dlm_results, 3) %>% kable(format = "html", escape = F) %>%
+  kable_styling(font_size = 10) %>% kableExtra::scroll_box(width = "100%", height = "400px")
+```
+
+```{r, warning=FALSE,message=FALSE}
+round(post_dlm_results, 3) %>% kable(format = "html", escape = F) %>%
+  kable_styling(font_size = 10) %>% kableExtra::scroll_box(width = "100%", height = "400px")
+```
+
+
+
+
+```{r, warning=FALSE,message=FALSE, out.width = '100%'}
+pre_dlm_results$lag =1:74
+p1 <- ggplot(pre_dlm_results, aes(x = lag, y = fit))  + 
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "grey70") + 
+  geom_line(color="black", size=1) + geom_vline(xintercept = c(2), linetype="dotted", 
+                color = "black", size=1)+
+  geom_hline(yintercept = 0, color = "black")+  scale_x_continuous(breaks=c(2, 14, 26, 38, 50, 62, 74),label = c("Birth","1", "2", "3",  "4", "5", "6"))+
+
+  theme_classic()+ xlab("Years") + ylab("FEV1 z-score")+
+  theme(axis.text=element_text(size=15,  face="bold"))+ theme(axis.title.x=element_text(size=15,  face="bold")) + theme(axis.title.y=element_text(size=15,  face="bold")) 
+ 
+
+post_dlm_results$lag =1:74
+p2 <- ggplot(post_dlm_results, aes(x = lag, y = fit))  + 
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "grey70") + 
+  geom_line(color="black", size=1) + geom_vline(xintercept = c(2), linetype="dotted", 
+                color = "black", size=1)+
+  geom_hline(yintercept = 0, color = "black")+  scale_x_continuous(breaks=c(2, 14, 26, 38, 50, 62, 74),label = c("Birth","1", "2", "3",  "4", "5", "6"))+
+
+  theme_classic()+ xlab("Years") + ylab("FEV1 z-score")+
+  theme(axis.text=element_text(size=15,  face="bold"))+ theme(axis.title.x=element_text(size=15,  face="bold")) + theme(axis.title.y=element_text(size=15,  face="bold")) 
+
+pFEV1_ageEdu = ggarrange(p1, p2)
+pFEV1_ageEdu
+
+p1
+
+p2
+
+```
+
+
+
+
+
+
+## Method=REML
+
+## FVC model 
+
+
+```{r, echo=TRUE, warning=FALSE}
+
+
+
+
+
+mod  <- gam(z_pre_fvc ~pm_exp_cb + + temp_exp_cb   +as.factor (ets_postnatal) +mom_age +as.factor (educ_dich)  ,paraPen = list(pm_exp_cb  = pen1,  
+                          temp_exp_cb  = pen2), 
+           method = 'REML') # Estimation technique
+
+summary (mod)
+
+
+# Summarize results
+pre_exp_cr <- crossreduce(pm_exp_cb , # DLM crossbasis used in model
+                          mod, # Model results
+                          type = "var", # Reduction across exposure values
+                          value = 5, # Effect relative to exposure value = 1
+                          ci.level = 0.95) # Confidence level
+post_exp_cr <- crossreduce(temp_exp_cb , mod, type = "var", value = 5)
+pre_dlm_results <- data.frame("fit" = pre_exp_cr$fit, 
+                              "low" = pre_exp_cr$low,
+                              "high" = pre_exp_cr$high)
+post_dlm_results <- data.frame("fit" = post_exp_cr$fit, 
+                              "low" = post_exp_cr$low,
+                              "high" = post_exp_cr$high)
+# name rows with '*' to specify critical windows
+row.names(pre_dlm_results) <- ifelse(pre_dlm_results$low > 0 | pre_dlm_results$high < 0, paste0("*", row.names(pre_dlm_results)), row.names(pre_dlm_results))
+row.names(post_dlm_results) <- ifelse(post_dlm_results$low > 0 | post_dlm_results$high < 0, paste0("*", row.names(post_dlm_results)), row.names(post_dlm_results))
+```
+
+```{r}
+
+######################create csv file for new predictions#######################
+pre_exp_cr <- crosspred(pm_exp_cb , 
+                        mod,ci.level=0.95, at=5, cen=0)
+
+prd<-with(pre_exp_cr, c(matfit))
+prdlow<-with(pre_exp_cr, c(matlow))
+prdhigh<-with(pre_exp_cr, c(mathigh))
+
+
+
+write.csv(rbind(prd, prdlow, prdhigh), "H:/rosam03/Documents/ACCESS PRISM/Postnatal PM and lung function/fvcpenspline.csv")
+
+```
+
+```{r, warning=FALSE,message=FALSE}
+round(pre_dlm_results, 3) %>% kable(format = "html", escape = F) %>%
+  kable_styling(font_size = 10) %>% kableExtra::scroll_box(width = "100%", height = "400px")
+```
+
+```{r, warning=FALSE,message=FALSE}
+round(post_dlm_results, 3) %>% kable(format = "html", escape = F) %>%
+  kable_styling(font_size = 10) %>% kableExtra::scroll_box(width = "100%", height = "400px")
+```
+
+
+
+
+```{r, warning=FALSE,message=FALSE, out.width = '100%'}
+pre_dlm_results$lag =1:74
+p1 <- ggplot(pre_dlm_results, aes(x = lag, y = fit))  + 
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "grey70") + 
+  geom_line(color="black", size=1) + geom_vline(xintercept = c(2), linetype="dotted", 
+                color = "black", size=1)+
+  geom_hline(yintercept = 0, color = "black")+  scale_x_continuous(breaks=c(2, 14, 26, 38, 50, 62, 74),label = c("Birth","1", "2", "3",  "4", "5", "6"))+
+
+  theme_classic()+ xlab("Years") + ylab("FVC z-score")+
+  theme(axis.text=element_text(size=15,  face="bold"))+ theme(axis.title.x=element_text(size=15,  face="bold")) + theme(axis.title.y=element_text(size=15,  face="bold")) 
+ 
+
+post_dlm_results$lag =1:74
+p2 <- ggplot(post_dlm_results, aes(x = lag, y = fit))  + 
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "grey70") + 
+  geom_line(color="black", size=1) + geom_vline(xintercept = c(2), linetype="dotted", 
+                color = "black", size=1)+
+  geom_hline(yintercept = 0, color = "black")+  scale_x_continuous(breaks=c(2, 14, 26, 38, 50, 62, 74),label = c("Birth","1", "2", "3",  "4", "5", "6"))+
+
+  theme_classic()+ xlab("Years") + ylab("FVC z-score")+
+  theme(axis.text=element_text(size=15,  face="bold"))+ theme(axis.title.x=element_text(size=15,  face="bold")) + theme(axis.title.y=element_text(size=15,  face="bold")) 
+
+pFEV1_ageEdu = ggarrange(p1, p2)
+pFEV1_ageEdu
+
+p1
+
+p2
+
+
+```
+
+
+
+
+## Method=REML
+
+## FEV1/FVC model 
+
+
+```{r, echo=TRUE, warning=FALSE}
+
+
+
+
+
+mod  <- gam(z_pre_fev1_fvc2 ~pm_exp_cb + + temp_exp_cb   +as.factor (ets_postnatal) +mom_age +as.factor (educ_dich) ,paraPen = list(pm_exp_cb  = pen1,  
+                          temp_exp_cb  = pen2), 
+           method = 'REML') # Estimation technique
+
+summary (mod)
+
+
+# Summarize results
+pre_exp_cr <- crossreduce(pm_exp_cb , # DLM crossbasis used in model
+                          mod, # Model results
+                          type = "var", # Reduction across exposure values
+                          value = 5, # Effect relative to exposure value = 1
+                          ci.level = 0.95) # Confidence level
+post_exp_cr <- crossreduce(temp_exp_cb , mod, type = "var", value = 5)
+pre_dlm_results <- data.frame("fit" = pre_exp_cr$fit, 
+                              "low" = pre_exp_cr$low,
+                              "high" = pre_exp_cr$high)
+post_dlm_results <- data.frame("fit" = post_exp_cr$fit, 
+                              "low" = post_exp_cr$low,
+                              "high" = post_exp_cr$high)
+# name rows with '*' to specify critical windows
+row.names(pre_dlm_results) <- ifelse(pre_dlm_results$low > 0 | pre_dlm_results$high < 0, paste0("*", row.names(pre_dlm_results)), row.names(pre_dlm_results))
+row.names(post_dlm_results) <- ifelse(post_dlm_results$low > 0 | post_dlm_results$high < 0, paste0("*", row.names(post_dlm_results)), row.names(post_dlm_results))
+```
+
+```{r}
+
+######################create csv file for new predictions#######################
+pre_exp_cr <- crosspred(pm_exp_cb , 
+                        mod,ci.level=0.95, at=5, cen=0)
+
+prd<-with(pre_exp_cr, c(matfit))
+prdlow<-with(pre_exp_cr, c(matlow))
+prdhigh<-with(pre_exp_cr, c(mathigh))
+
+
+
+write.csv(rbind(prd, prdlow, prdhigh), "H:/rosam03/Documents/ACCESS PRISM/Postnatal PM and lung function/fev1fvcpenspline.csv")
+
+```
+
+```{r, warning=FALSE,message=FALSE}
+round(pre_dlm_results, 3) %>% kable(format = "html", escape = F) %>%
+  kable_styling(font_size = 10) %>% kableExtra::scroll_box(width = "100%", height = "400px")
+```
+
+```{r, warning=FALSE,message=FALSE}
+round(post_dlm_results, 3) %>% kable(format = "html", escape = F) %>%
+  kable_styling(font_size = 10) %>% kableExtra::scroll_box(width = "100%", height = "400px")
+```
+
+
+
+
+```{r, warning=FALSE,message=FALSE, out.width = '100%'}
+pre_dlm_results$lag =1:74
+p1 <- ggplot(pre_dlm_results, aes(x = lag, y = fit))  + 
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "grey70") + 
+  geom_line(color="black", size=1) + geom_vline(xintercept = c(2), linetype="dotted", 
+                color = "black", size=1)+
+  geom_hline(yintercept = 0, color = "black")+  scale_x_continuous(breaks=c(2, 14, 26, 38, 50, 62, 74),label = c("Birth","1", "2", "3",  "4", "5", "6"))+
+
+  theme_classic()+ xlab("Years") + ylab("FEV1/FVC z-score")+
+  theme(axis.text=element_text(size=15,  face="bold"))+ theme(axis.title.x=element_text(size=15,  face="bold")) + theme(axis.title.y=element_text(size=15,  face="bold")) 
+ 
+
+post_dlm_results$lag =1:74
+p2 <- ggplot(post_dlm_results, aes(x = lag, y = fit))  + 
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "grey70") + 
+  geom_line(color="black", size=1) + geom_vline(xintercept = c(2), linetype="dotted", 
+                color = "black", size=1)+
+  geom_hline(yintercept = 0, color = "black")+  scale_x_continuous(breaks=c(2, 14, 26, 38, 50, 62, 74),label = c("Birth","1", "2", "3",  "4", "5", "6"))+
+
+  theme_classic()+ xlab("Years") + ylab("FEV1/FVC z-score")+
+  theme(axis.text=element_text(size=15,  face="bold"))+ theme(axis.title.x=element_text(size=15,  face="bold")) + theme(axis.title.y=element_text(size=15,  face="bold")) 
+
+pFEV1_ageEdu = ggarrange(p1, p2)
+pFEV1_ageEdu
+
+p1
+
+p2
+
+```
+
+
+
+
+
+## Method=REML
+
+## FEF model 
+
+
+```{r, echo=TRUE, warning=FALSE}
+
+
+
+
+
+mod  <- gam(z_pre_fef ~pm_exp_cb + + temp_exp_cb   +as.factor (ets_postnatal) +mom_age +as.factor (educ_dich) ,paraPen = list(pm_exp_cb  = pen1,  
+                          temp_exp_cb  = pen2), 
+           method = 'REML') # Estimation technique
+
+summary (mod)
+
+
+# Summarize results
+pre_exp_cr <- crossreduce(pm_exp_cb , # DLM crossbasis used in model
+                          mod, # Model results
+                          type = "var", # Reduction across exposure values
+                          value = 5, # Effect relative to exposure value = 1
+                          ci.level = 0.95) # Confidence level
+post_exp_cr <- crossreduce(temp_exp_cb , mod, type = "var", value = 5)
+pre_dlm_results <- data.frame("fit" = pre_exp_cr$fit, 
+                              "low" = pre_exp_cr$low,
+                              "high" = pre_exp_cr$high)
+post_dlm_results <- data.frame("fit" = post_exp_cr$fit, 
+                              "low" = post_exp_cr$low,
+                              "high" = post_exp_cr$high)
+# name rows with '*' to specify critical windows
+row.names(pre_dlm_results) <- ifelse(pre_dlm_results$low > 0 | pre_dlm_results$high < 0, paste0("*", row.names(pre_dlm_results)), row.names(pre_dlm_results))
+row.names(post_dlm_results) <- ifelse(post_dlm_results$low > 0 | post_dlm_results$high < 0, paste0("*", row.names(post_dlm_results)), row.names(post_dlm_results))
+```
+
+```{r}
+
+######################create csv file for new predictions#######################
+pre_exp_cr <- crosspred(pm_exp_cb , 
+                        mod,ci.level=0.95, at=5, cen=0)
+
+prd<-with(pre_exp_cr, c(matfit))
+prdlow<-with(pre_exp_cr, c(matlow))
+prdhigh<-with(pre_exp_cr, c(mathigh))
+
+
+
+write.csv(rbind(prd, prdlow, prdhigh), "H:/rosam03/Documents/ACCESS PRISM/Postnatal PM and lung function/fefpenspline.csv")
+
+```
+
+```{r, warning=FALSE,message=FALSE}
+round(pre_dlm_results, 3) %>% kable(format = "html", escape = F) %>%
+  kable_styling(font_size = 10) %>% kableExtra::scroll_box(width = "100%", height = "400px")
+```
+
+```{r, warning=FALSE,message=FALSE}
+round(post_dlm_results, 3) %>% kable(format = "html", escape = F) %>%
+  kable_styling(font_size = 10) %>% kableExtra::scroll_box(width = "100%", height = "400px")
+```
+
+
+
+
+```{r, warning=FALSE,message=FALSE, out.width = '100%'}
+pre_dlm_results$lag =1:74
+p1 <- ggplot(pre_dlm_results, aes(x = lag, y = fit))  + 
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "grey70") + 
+  geom_line(color="black", size=1) + geom_vline(xintercept = c(2), linetype="dotted", 
+                color = "black", size=1)+
+  geom_hline(yintercept = 0, color = "black")+  scale_x_continuous(breaks=c(2, 14, 26, 38, 50, 62, 74),label = c("Birth","1", "2", "3",  "4", "5", "6"))+
+
+  theme_classic()+ xlab("Years") + ylab("FEF z-score")+
+  theme(axis.text=element_text(size=15,  face="bold"))+ theme(axis.title.x=element_text(size=15,  face="bold")) + theme(axis.title.y=element_text(size=15,  face="bold")) 
+ 
+
+post_dlm_results$lag =1:74
+p2 <- ggplot(post_dlm_results, aes(x = lag, y = fit))  + 
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "grey70") + 
+  geom_line(color="black", size=1) + geom_vline(xintercept = c(2), linetype="dotted", 
+                color = "black", size=1)+
+  geom_hline(yintercept = 0, color = "black")+  scale_x_continuous(breaks=c(2, 14, 26, 38, 50, 62, 74),label = c("Birth","1", "2", "3",  "4", "5", "6"))+
+
+  theme_classic()+ xlab("Years") + ylab("FEF z-score")+
+  theme(axis.text=element_text(size=15,  face="bold"))+ theme(axis.title.x=element_text(size=15,  face="bold")) + theme(axis.title.y=element_text(size=15,  face="bold")) 
+
+pFEV1_ageEdu = ggarrange(p1, p2)
+pFEV1_ageEdu
+
+p1
+
+p2
+
+```
