@@ -1,0 +1,313 @@
+---
+title: "PROGRESS ACCESS combinability with new matching algorithms "
+author: "Maria José Rosa"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+
+## Load packages and data
+
+```{r global_options, include=TRUE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set( warning=FALSE, message=FALSE)
+
+
+
+library(foreign)
+library (rlang)
+
+
+
+library(glm2)
+library (data.table)
+library (ggplot2)
+library(lavaan)
+
+library(ggplot2)
+
+library(mgcv)
+library(nlme)
+library(splines2)
+library(dlnm)
+library (gridExtra)
+library (tidyr)
+library(knitr)
+library (lme4)
+library (gWQS)
+library(devtools)
+library (tidyr)
+library (stargazer)
+library (pastecs)
+library(corrplot)
+library (ggiraphExtra)
+library(jtools)
+library(dplyr)
+library (plyr)
+library (MatchIt)
+library (ggpubr)
+library (MALDIquant)
+library (optmatch)
+library (cobalt)
+
+```
+
+## prepare data
+
+```{r, message=FALSE, warning=FALSE}
+
+library(haven)
+ACCESS_PROGRESS_PM_temp_lung_function_merge_122121 <- read_sav("PROGRESS ACCESS PM temp month avgs 020722 small_3.sav")
+
+
+main<-subset (ACCESS_PROGRESS_PM_temp_lung_function_merge_122121, !is.na (z_pre_fev1)  & !is.na (mom_age) & !is.na(prepreg_bmi)& !is.na(Fenton_Z_score00) &!is.na (educ_dich)  & !is.na (childsex) & !is.na (ets_preg))
+
+attach(main)
+
+
+
+
+main$education= factor(main$educ_dich, levels = c(0, 1), labels = c("Less than HS", "At least HS"))
+
+main$SMOKE = factor(main$ets_preg, levels = c(0, 1), labels = c("No ETS Exposure","ETS exposure"))
+
+main$SEX = factor(main$childsex, levels = c(0, 1), labels = c("Female","Male"))
+
+```
+
+
+
+
+
+##  Nearest method matching
+```{r}
+
+
+
+## algorithm 
+
+mod_match <- matchit(cohort_num2 ~ mom_age  + prepreg_bmi+ Fenton_Z_score00 +education + SMOKE+SEX,
+                     method = "nearest",data = main)
+
+dta_m <- match.data(mod_match)
+dim(dta_m)
+
+summary(mod_match, un = FALSE)
+
+mod_match
+
+## check covariate balance
+
+plot(mod_match, type = "jitter", interactive = FALSE)
+
+plot(mod_match, type = "qq", interactive = FALSE,
+     which.xs = c("mom_age", "prepreg_bmi", "Fenton_Z_score00", "SEX" , "education", "SMOKE"))
+
+plot(summary(mod_match))
+
+love.plot(mod_match, binary = "std")
+
+bal.plot(mod_match, var.name = "mom_age", which = "both")
+
+bal.plot(mod_match, var.name = "distance", which = "both",
+         type = "histogram", mirror = TRUE)
+
+```
+
+
+
+
+
+##  Nearest method with discard 
+
+```{r}
+##will eliminate any participants not in the area of common support
+
+
+mod_match <- matchit(cohort_num2 ~ mom_age  + prepreg_bmi+ Fenton_Z_score00 +education + SMOKE+SEX,
+                     method = "nearest",discard="both",data = main)
+
+dta_m <- match.data(mod_match)
+dim(dta_m)
+
+summary(mod_match, un = FALSE)
+
+mod_match
+
+## check covariate balance
+
+plot(mod_match, type = "jitter", interactive = FALSE)
+
+plot(mod_match, type = "qq", interactive = FALSE,
+     which.xs = c("mom_age", "prepreg_bmi", "Fenton_Z_score00", "SEX" , "education", "SMOKE"))
+
+plot(summary(mod_match))
+
+love.plot(mod_match, binary = "std")
+
+bal.plot(mod_match, var.name = "mom_age", which = "both")
+
+bal.plot(mod_match, var.name = "distance", which = "both",
+         type = "histogram", mirror = TRUE)
+
+
+```
+
+
+
+## Nearest method with caliper and ratio of 1:3
+
+```{r}
+
+
+
+mod_match <- matchit(cohort_num2 ~ mom_age  + prepreg_bmi+ Fenton_Z_score00 +education + SMOKE+SEX,
+                     method = "nearest",distance="glm", caliper=0.20, ratio=3,data = main)
+
+dta_m <- match.data(mod_match)
+dim(dta_m)
+
+summary(mod_match, un = FALSE)
+
+mod_match
+
+## check covariate balance
+
+plot(mod_match, type = "jitter", interactive = FALSE)
+
+plot(mod_match, type = "qq", interactive = FALSE,
+     which.xs = c("mom_age", "prepreg_bmi", "Fenton_Z_score00", "SEX" , "education", "SMOKE"))
+
+plot(summary(mod_match))
+
+v <- data.frame(old = c("mom_age", "prepreg_bmi", "Fenton_Z_score00", "SEX" , "education", "SMOKE", "distance"),
+                new = c("Maternal Age at Enrollment", "Pre-pregnancy BMI", "Birthweight z-score", 
+                        "Sex", "Maternal Education", 
+                        "Prenatal ETS exposure", "Propensity Score"))
+
+love.plot(mod_match, threshold = c(m = .1, ks = .05), 
+          binary = "std", abs = TRUE,
+          var.order = "unadjusted", var.names = v,
+          limits = c(0, 1), grid = FALSE, wrap = 20,
+          sample.names = c("Unmatched", "Matched"),
+          position = "top", shapes = c("circle", "square"),
+          colors = c("darkgray", "black"))
+
+bal.plot(mod_match, var.name = "mom_age", which = "both")
+
+bal.plot(mod_match, var.name = "Fenton_Z_score00", which = "both")
+
+bal.plot(mod_match, var.name = "prepreg_bmi", which = "both")
+
+bal.plot(mod_match, var.name = "distance",  which = "both",
+         type = "histogram", mirror = TRUE)
+
+
+
+summary(mod_match, addlvariables = ~ I(mom_age^2) +I(prepreg_bmi^2)+ I(Fenton_Z_score00^2)+ I(education==0) + 
+          I(SMOKE==0) + educ:SMOKE)
+
+m.sum <- summary(mod_match, addlvariables = ~ I(mom_age^2) +I(prepreg_bmi^2)+ I(Fenton_Z_score00^2)+ I(education==0) + 
+          I(SMOKE==0) + educ:SMOKE)
+plot(m.sum)
+
+dta_mcomplete<- merge(dta_m, main, by.x = "folio2", by.y="folio2")
+
+write.csv(dta_mcomplete, file="propensity scores nearest with 20 caliper new cohort 082922.csv")
+
+
+```
+
+
+##  Optimal matching
+
+```{r}
+##will eliminate any participants not in the area of common support
+
+
+mod_match <- matchit(cohort_num2 ~ mom_age  + prepreg_bmi+ Fenton_Z_score00 +education + SMOKE+SEX,
+                     method = "optimal", data = main)
+
+dta_m <- match.data(mod_match)
+dim(dta_m)
+
+summary(mod_match, un = FALSE)
+
+mod_match
+
+## check covariate balance
+
+plot(mod_match, type = "jitter", interactive = FALSE)
+
+plot(mod_match, type = "qq", interactive = FALSE,
+     which.xs = c("mom_age", "prepreg_bmi", "Fenton_Z_score00", "SEX" , "education", "SMOKE"))
+
+plot(summary(mod_match))
+
+love.plot(mod_match, binary = "std")
+
+bal.plot(mod_match, var.name = "mom_age", which = "both")
+
+bal.plot(mod_match, var.name = "distance", which = "both",
+         type = "histogram", mirror = TRUE)
+
+
+
+```
+
+
+
+
+##  Optimal matching with tolerance parameter
+
+```{r}
+##will eliminate any participants not in the area of common support
+
+
+mod_match2 <- matchit(cohort_num2 ~ mom_age  + prepreg_bmi+ Fenton_Z_score00 +education + SMOKE+SEX,
+                     method = "optimal",tol=0.00000001, data = main)
+
+dta_m <- match.data(mod_match2)
+dim(dta_m)
+
+summary(mod_match2, un = FALSE)
+
+mod_match2
+
+## check covariate balance
+
+plot(mod_match2, type = "jitter", interactive = FALSE)
+
+plot(mod_match2, type = "qq", interactive = FALSE,
+     which.xs = c("mom_age", "prepreg_bmi", "Fenton_Z_score00", "SEX" , "education", "SMOKE"))
+
+plot(summary(mod_match2))
+
+love.plot(mod_match2, binary = "std")
+
+bal.plot(mod_match2, var.name = "mom_age", which = "both")
+bal.plot(mod_match2, var.name = "Fenton_Z_score00", which = "both")
+
+bal.plot(mod_match2, var.name = "distance", which = "both",
+         type = "histogram", mirror = TRUE)
+
+summary(mod_match2, addlvariables = ~ I(mom_age^2) +I(prepreg_bmi^2)+ I(Fenton_Z_score00^2)+ I(education==0) + 
+          I(SMOKE==0) + educ:SMOKE)
+
+m.sum2 <- summary(mod_match2, addlvariables = ~ I(mom_age^2) +I(prepreg_bmi^2)+ I(Fenton_Z_score00^2)+ I(education==0) + 
+          I(SMOKE==0) + educ:SMOKE)
+plot(m.sum2)
+
+
+#dta_mcomplete<- merge(dta_m, main, by.x = "folio2", by.y="folio2")
+
+#write.csv(dta_mcomplete, file="propensity scores optimal and tol 082622.csv")
+
+```
+
+
+
+
+
+
